@@ -1,0 +1,172 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Cheng Zhao <zcbenz@gmail.com>
+Date: Thu, 26 Oct 2023 11:07:47 +0900
+Subject: feat: add ContentBrowserClient::DoesSchemeAllowCodeCache
+
+Backport https://chromium-review.googlesource.com/c/chromium/src/+/4975328
+
+diff --git a/content/browser/code_cache/generated_code_cache.cc b/content/browser/code_cache/generated_code_cache.cc
+index 65ac47b199b3f6d37fe78495eeb3d3598c4add8d..af6f4552540454d1d07572d54efafeb4b0a27e5b 100644
+--- a/content/browser/code_cache/generated_code_cache.cc
++++ b/content/browser/code_cache/generated_code_cache.cc
+@@ -16,6 +16,8 @@
+ #include "base/time/time.h"
+ #include "components/services/storage/public/cpp/big_io_buffer.h"
+ #include "content/common/features.h"
++#include "content/public/browser/content_browser_client.h"
++#include "content/public/common/content_client.h"
+ #include "content/public/common/url_constants.h"
+ #include "crypto/sha2.h"
+ #include "net/base/completion_once_callback.h"
+@@ -46,28 +48,32 @@ void CheckValidKeys(const GURL& resource_url,
+                     GeneratedCodeCache::CodeCacheType cache_type) {
+   // If the resource url is invalid don't cache the code.
+   DCHECK(resource_url.is_valid());
+-  bool resource_url_is_chrome_or_chrome_untrusted =
+-      resource_url.SchemeIs(content::kChromeUIScheme) ||
+-      resource_url.SchemeIs(content::kChromeUIUntrustedScheme);
+-  DCHECK(resource_url.SchemeIsHTTPOrHTTPS() ||
+-         resource_url_is_chrome_or_chrome_untrusted);
++  auto* browser_client = GetContentClient()->browser();
++  bool resource_url_allows_code_cache =
++      browser_client->DoesSchemeAllowCodeCache(resource_url.scheme());
++  DCHECK(resource_url.SchemeIsHTTPOrHTTPS() || resource_url_allows_code_cache);
+ 
+   // |origin_lock| should be either empty or should have
+-  // Http/Https/chrome/chrome-untrusted schemes and it should not be a URL with
++  // Http/Https or code cache allowed schemes and it should not be a URL with
+   // opaque origin. Empty origin_locks are allowed when the renderer is not
+   // locked to an origin.
+-  bool origin_lock_is_chrome_or_chrome_untrusted =
+-      origin_lock.SchemeIs(content::kChromeUIScheme) ||
+-      origin_lock.SchemeIs(content::kChromeUIUntrustedScheme);
++  bool origin_lock_allows_code_cache =
++      browser_client->DoesSchemeAllowCodeCache(origin_lock.scheme());
+   DCHECK(origin_lock.is_empty() ||
+          ((origin_lock.SchemeIsHTTPOrHTTPS() ||
+-           origin_lock_is_chrome_or_chrome_untrusted) &&
++           origin_lock_allows_code_cache) &&
+           !url::Origin::Create(origin_lock).opaque()));
+ 
+   // The chrome and chrome-untrusted schemes are only used with the WebUI
+   // code cache type.
++  bool origin_lock_is_chrome_or_chrome_untrusted =
++      origin_lock.SchemeIs(content::kChromeUIScheme) ||
++      origin_lock.SchemeIs(content::kChromeUIUntrustedScheme);
+   DCHECK_EQ(origin_lock_is_chrome_or_chrome_untrusted,
+             cache_type == GeneratedCodeCache::kWebUIJavaScript);
++  bool resource_url_is_chrome_or_chrome_untrusted =
++      resource_url.SchemeIs(content::kChromeUIScheme) ||
++      resource_url.SchemeIs(content::kChromeUIUntrustedScheme);
+   DCHECK_EQ(resource_url_is_chrome_or_chrome_untrusted,
+             cache_type == GeneratedCodeCache::kWebUIJavaScript);
+ }
+diff --git a/content/browser/renderer_host/code_cache_host_impl.cc b/content/browser/renderer_host/code_cache_host_impl.cc
+index 6b9e5065dc570b506c4c2606d536319d98684e12..a9eb98d0aa10a8cda6a50392a8143d865e51d009 100644
+--- a/content/browser/renderer_host/code_cache_host_impl.cc
++++ b/content/browser/renderer_host/code_cache_host_impl.cc
+@@ -19,8 +19,10 @@
+ #include "content/browser/code_cache/generated_code_cache_context.h"
+ #include "content/browser/process_lock.h"
+ #include "content/browser/renderer_host/render_process_host_impl.h"
++#include "content/public/browser/content_browser_client.h"
+ #include "content/public/browser/resource_context.h"
+ #include "content/public/browser/storage_partition.h"
++#include "content/public/common/content_client.h"
+ #include "content/public/common/content_features.h"
+ #include "content/public/common/url_constants.h"
+ #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+@@ -40,6 +42,11 @@ enum class Operation {
+   kWrite,
+ };
+ 
++bool CodeCacheAllowedForProcessLockURL(const ProcessLock& process_lock) {
++  return GetContentClient()->browser()->DoesSchemeAllowCodeCache(
++      process_lock.lock_url().scheme());
++}
++
+ bool CheckSecurityForAccessingCodeCacheData(const GURL& resource_url,
+                                             int render_process_id,
+                                             Operation operation) {
+@@ -52,8 +59,8 @@ bool CheckSecurityForAccessingCodeCacheData(const GURL& resource_url,
+   // chrome-untrusted scripts, so any http(s) page attempting to store data
+   // about a chrome or chrome-untrusted script would be an indication of
+   // suspicious activity.
+-  if (resource_url.SchemeIs(content::kChromeUIScheme) ||
+-      resource_url.SchemeIs(content::kChromeUIUntrustedScheme)) {
++  if (GetContentClient()->browser()->DoesSchemeAllowCodeCache(
++          resource_url.scheme())) {
+     if (!process_lock.is_locked_to_site()) {
+       // We can't tell for certain whether this renderer is doing something
+       // malicious, but we don't trust it enough to store data.
+@@ -69,12 +76,10 @@ bool CheckSecurityForAccessingCodeCacheData(const GURL& resource_url,
+     // Other schemes which might successfully load chrome or chrome-untrusted
+     // scripts, such as the PDF viewer, are unsupported but not considered
+     // dangerous.
+-    return process_lock.matches_scheme(content::kChromeUIScheme) ||
+-           process_lock.matches_scheme(content::kChromeUIUntrustedScheme);
++    return CodeCacheAllowedForProcessLockURL(process_lock);
+   }
+   if (resource_url.SchemeIsHTTPOrHTTPS()) {
+-    if (process_lock.matches_scheme(content::kChromeUIScheme) ||
+-        process_lock.matches_scheme(content::kChromeUIUntrustedScheme)) {
++    if (CodeCacheAllowedForProcessLockURL(process_lock)) {
+       // It is possible for WebUI pages to include open-web content, but such
+       // usage is rare and we've decided that reasoning about security is easier
+       // if the WebUI code cache includes only WebUI scripts.
+@@ -146,8 +151,7 @@ absl::optional<GURL> GetSecondaryKeyForCodeCache(const GURL& resource_url,
+   // limit the cache to http/https/chrome/chrome-untrusted processes.
+   if (process_lock.matches_scheme(url::kHttpScheme) ||
+       process_lock.matches_scheme(url::kHttpsScheme) ||
+-      process_lock.matches_scheme(content::kChromeUIScheme) ||
+-      process_lock.matches_scheme(content::kChromeUIUntrustedScheme)) {
++      CodeCacheAllowedForProcessLockURL(process_lock)) {
+     return process_lock.lock_url();
+   }
+ 
+diff --git a/content/public/browser/content_browser_client.cc b/content/public/browser/content_browser_client.cc
+index 23eb25c4413746cda368d5e61c0c2bbb74a144f1..fe6d6ef45aa0b5f9b266b83daf8fa10f193180ec 100644
+--- a/content/public/browser/content_browser_client.cc
++++ b/content/public/browser/content_browser_client.cc
+@@ -47,6 +47,7 @@
+ #include "content/public/browser/web_contents_view_delegate.h"
+ #include "content/public/common/alternative_error_page_override_info.mojom.h"
+ #include "content/public/common/content_features.h"
++#include "content/public/common/url_constants.h"
+ #include "content/public/common/url_utils.h"
+ #include "media/audio/audio_manager.h"
+ #include "media/capture/content/screen_enumerator.h"
+@@ -637,6 +638,11 @@ GeneratedCodeCacheSettings ContentBrowserClient::GetGeneratedCodeCacheSettings(
+   return GeneratedCodeCacheSettings(false, 0, base::FilePath());
+ }
+ 
++bool ContentBrowserClient::DoesSchemeAllowCodeCache(std::string_view scheme) {
++  return scheme == content::kChromeUIScheme ||
++         scheme == content::kChromeUIUntrustedScheme;
++}
++
+ void ContentBrowserClient::AllowCertificateError(
+     WebContents* web_contents,
+     int cert_error,
+diff --git a/content/public/browser/content_browser_client.h b/content/public/browser/content_browser_client.h
+index 2eea022ab7ab8523b3b5d6f3cad6f9ebabb5c58a..dfac93d8e1ad026b01790463a9322205fad80a5b 100644
+--- a/content/public/browser/content_browser_client.h
++++ b/content/public/browser/content_browser_client.h
+@@ -11,6 +11,7 @@
+ #include <memory>
+ #include <set>
+ #include <string>
++#include <string_view>
+ #include <vector>
+ 
+ #include "base/containers/flat_map.h"
+@@ -1082,6 +1083,9 @@ class CONTENT_EXPORT ContentBrowserClient {
+   virtual GeneratedCodeCacheSettings GetGeneratedCodeCacheSettings(
+       BrowserContext* context);
+ 
++  // Allow the embedder to control if js code cache is allowed in |scheme| URL.
++  virtual bool DoesSchemeAllowCodeCache(std::string_view scheme);
++
+   // Informs the embedder that a certificate error has occurred. If
+   // |overridable| is true and if |strict_enforcement| is false, the user
+   // can ignore the error and continue. The embedder can call the callback

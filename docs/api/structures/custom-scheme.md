@@ -9,3 +9,4 @@
   * `supportFetchAPI` boolean (optional) - Default false.
   * `corsEnabled` boolean (optional) - Default false.
   * `stream` boolean (optional) - Default false.
+  * `codeCache` boolean (optional) - Default false.

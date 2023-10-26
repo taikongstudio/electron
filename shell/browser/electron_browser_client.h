@@ -131,6 +131,7 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
   std::string GetGeolocationApiKey() override;
   content::GeneratedCodeCacheSettings GetGeneratedCodeCacheSettings(
       content::BrowserContext* context) override;
+  bool DoesSchemeAllowCodeCache(std::string_view scheme) override;
   void AllowCertificateError(
       content::WebContents* web_contents,
       int cert_error,

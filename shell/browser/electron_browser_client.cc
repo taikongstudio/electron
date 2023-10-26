@@ -13,6 +13,7 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/debug/crash_logging.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
@@ -534,7 +535,8 @@ void ElectronBrowserClient::AppendExtraCommandLineSwitches(
         switches::kStandardSchemes,      switches::kEnableSandbox,
         switches::kSecureSchemes,        switches::kBypassCSPSchemes,
         switches::kCORSSchemes,          switches::kFetchSchemes,
-        switches::kServiceWorkerSchemes, switches::kStreamingSchemes};
+        switches::kServiceWorkerSchemes, switches::kStreamingSchemes,
+        switches::kCodeCacheSchemes};
     command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
                                    kCommonSwitchNames);
     if (process_type == ::switches::kUtilityProcess ||
@@ -605,6 +607,11 @@ ElectronBrowserClient::GetGeneratedCodeCacheSettings(
   // heuristics based on available disk size. These are implemented in
   // disk_cache::PreferredCacheSize in net/disk_cache/cache_util.cc.
   return content::GeneratedCodeCacheSettings(true, 0, cache_path);
+}
+
+bool ElectronBrowserClient::DoesSchemeAllowCodeCache(std::string_view scheme) {
+  return base::Contains(api::GetCodeCacheSchemes(), scheme) ||
+         content::ContentBrowserClient::DoesSchemeAllowCodeCache(scheme);
 }
 
 void ElectronBrowserClient::AllowCertificateError(
@@ -702,7 +709,7 @@ ElectronBrowserClient::CreateWindowForVideoPictureInPicture(
 
 void ElectronBrowserClient::GetAdditionalAllowedSchemesForFileSystem(
     std::vector<std::string>* additional_schemes) {
-  auto schemes_list = api::GetStandardSchemes();
+  const auto& schemes_list = api::GetStandardSchemes();
   if (!schemes_list.empty())
     additional_schemes->insert(additional_schemes->end(), schemes_list.begin(),
                                schemes_list.end());
