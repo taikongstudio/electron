@@ -90,7 +90,11 @@ app.whenReady().then(() => {
     },
     printBackground: true,
     pageRanges: '1-3',
-    landscape: true
+    landscape: true,
+    pageSize: {
+      width: 100,
+      height: 100
+    }
   }).then((data: Buffer) => console.log(data));
 
   mainWindow.webContents.printToPDF({}).then(data => console.log(data));
@@ -436,6 +440,9 @@ app.configureHostResolver({ secureDnsMode: 'foo' });
 
 // @ts-expect-error Removed API
 console.log(app.runningUnderRosettaTranslation);
+
+// @ts-expect-error Removed API
+app.on('gpu-process-crashed', () => {});
 
 // @ts-expect-error Removed API
 app.on('renderer-process-crashed', () => {});

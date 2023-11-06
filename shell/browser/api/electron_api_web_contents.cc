@@ -737,7 +737,6 @@ WebContents::Type GetTypeFromViewType(extensions::mojom::ViewType view_type) {
 
     case extensions::mojom::ViewType::kAppWindow:
     case extensions::mojom::ViewType::kComponent:
-    case extensions::mojom::ViewType::kExtensionDialog:
     case extensions::mojom::ViewType::kExtensionPopup:
     case extensions::mojom::ViewType::kBackgroundContents:
     case extensions::mojom::ViewType::kExtensionGuest:
@@ -1335,12 +1334,6 @@ bool WebContents::HandleKeyboardEvent(
 bool WebContents::PlatformHandleKeyboardEvent(
     content::WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
-  // Escape exits tabbed fullscreen mode.
-  if (event.windows_key_code == ui::VKEY_ESCAPE && is_html_fullscreen()) {
-    ExitFullscreenModeForTab(source);
-    return true;
-  }
-
   // Check if the webContents has preferences and to ignore shortcuts
   auto* web_preferences = WebContentsPreferences::From(source);
   if (web_preferences && web_preferences->ShouldIgnoreMenuShortcuts())
@@ -3116,8 +3109,7 @@ v8::Local<v8::Promise> WebContents::PrintToPDF(const base::Value& settings) {
   auto header_template = *settings.GetDict().FindString("headerTemplate");
   auto footer_template = *settings.GetDict().FindString("footerTemplate");
   auto prefer_css_page_size = settings.GetDict().FindBool("preferCSSPageSize");
-  auto generate_tagged_pdf =
-      settings.GetDict().FindBool("shouldGenerateTaggedPDF");
+  auto generate_tagged_pdf = settings.GetDict().FindBool("generateTaggedPDF");
 
   absl::variant<printing::mojom::PrintPagesParamsPtr, std::string>
       print_pages_params = print_to_pdf::GetPrintPagesParams(
