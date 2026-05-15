@@ -24,7 +24,8 @@ class PluginUtils {
   // ID. Otherwise returns an empty string.
   static std::string GetExtensionIdForMimeType(
       content::BrowserContext* browser_context,
-      const std::string& mime_type);
+      const std::string& mime_type,
+      bool embedded);
 
   // Returns a map populated with MIME types that are handled by an extension as
   // keys and the corresponding extensions Ids as values.
